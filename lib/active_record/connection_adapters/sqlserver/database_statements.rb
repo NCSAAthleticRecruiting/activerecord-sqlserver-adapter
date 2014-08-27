@@ -190,16 +190,26 @@ module ActiveRecord
         protected
 
         def sql_for_insert(sql, pk, id_value, sequence_name, binds)
-          if pk.nil?
-            table_name = query_requires_identity_insert?(sql)
-            pk = primary_key(table_name)
-          end
-          sql = if pk && self.class.use_output_inserted && !database_prefix_remote_server?
-                  quoted_pk = SQLServer::Utils.extract_identifiers(pk).quoted
-                  sql.insert sql.index(/ (DEFAULT )?VALUES/), " OUTPUT INSERTED.#{quoted_pk}"
-                else
-                  "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
-                end
+          # COMMENTED CODE IS ORIGINAL CODE FROM TAG v5.0.0 FROM rails-sqlserver/activerecord-sqlserver-adapter
+          # if pk.nil?
+          #   table_name = query_requires_identity_insert?(sql)
+          #   pk = primary_key(table_name)
+          # end
+          # sql = if pk && self.class.use_output_inserted && !database_prefix_remote_server?
+          #         quoted_pk = SQLServer::Utils.extract_identifiers(pk).quoted
+          #         sql.insert sql.index(/ (DEFAULT )?VALUES/), " OUTPUT INSERTED.#{quoted_pk}"
+          #       else
+          #         "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
+          #       end
+
+          sql =
+            if pk
+              # support composite primary keys consisting of more than one column name
+              inserted_pks = [pk].flatten.map {|pk| "inserted.#{pk}"}
+              sql.insert(sql.index(/ (DEFAULT )?VALUES/), " OUTPUT #{inserted_pks.join(", ")}")
+            else
+              "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
+            end
           super
         end
 
