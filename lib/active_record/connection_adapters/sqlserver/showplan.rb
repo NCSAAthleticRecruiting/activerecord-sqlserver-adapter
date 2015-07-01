@@ -3,8 +3,9 @@ require 'active_record/connection_adapters/sqlserver/showplan/printer_xml'
 
 module ActiveRecord
   module ConnectionAdapters
-    module Sqlserver
+    module SQLServer
       module Showplan
+
         OPTION_ALL  = 'SHOWPLAN_ALL'
         OPTION_TEXT = 'SHOWPLAN_TEXT'
         OPTION_XML  = 'SHOWPLAN_XML'
@@ -12,7 +13,7 @@ module ActiveRecord
 
         def explain(arel, binds = [])
           sql = to_sql(arel)
-          result = with_showplan_on { do_exec_query(sql, 'EXPLAIN', binds) }
+          result = with_showplan_on { sp_executesql(sql, 'EXPLAIN', binds) }
           printer = showplan_printer.new(result)
           printer.pp
         end
@@ -58,6 +59,7 @@ module ActiveRecord
           else PrinterTable
           end
         end
+
       end
     end
   end

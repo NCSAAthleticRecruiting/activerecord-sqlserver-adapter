@@ -1,7 +1,8 @@
 module ActiveRecord
   module ConnectionAdapters
-    module Sqlserver
+    module SQLServer
       class SchemaCreation < AbstractAdapter::SchemaCreation
+
         private
 
         def visit_ColumnDefinition(o)
@@ -13,43 +14,38 @@ module ActiveRecord
           sql
         end
 
+        def visit_TableDefinition(o)
+          if o.as
+            table_name = quote_table_name(o.temporary ? "##{o.name}" : o.name)
+            projections, source = @conn.to_sql(o.as).match(%r{SELECT\s+(.*)?\s+FROM\s+(.*)?}).captures
+            select_into = "SELECT #{projections} INTO #{table_name} FROM #{source}"
+          else
+            o.instance_variable_set :@as, nil
+            super
+          end
+        end
+
         def add_column_options!(sql, options)
           column = options.fetch(:column) { return super }
-          if [:uniqueidentifier, :uuid].include?(column.type) && options[:default] =~ /\(\)/
+          if (column.type == :uuid || column.type == :uniqueidentifier) && options[:default] =~ /\(\)/
             sql << " DEFAULT #{options.delete(:default)}"
-            super
           else
             super
           end
         end
 
-        def visit_TableDefinition(o)
-          quoted_name = "#{quote_table_name((o.temporary ? '#' : '') + o.name.to_s)} "
-
-          if o.as
-            if o.as.is_a?(ActiveRecord::Relation)
-              select = o.as.to_sql
-            elsif o.as.is_a?(String)
-              select = o.as
-            else
-              raise 'Only able to generate a table from a SELECT statement passed as a String or ActiveRecord::Relation'
-            end
-
-            create_sql = 'SELECT * INTO '
-            create_sql << quoted_name
-            create_sql << 'FROM ('
-            create_sql << select
-            create_sql << ') AS __sq'
-
+        def action_sql(action, dependency)
+          case dependency
+          when :restrict
+            raise ArgumentError, <<-MSG.strip_heredoc
+              '#{dependency}' is not supported for :on_update or :on_delete.
+              Supported values are: :nullify, :cascade
+            MSG
           else
-            create_sql = "CREATE TABLE "
-            create_sql << quoted_name
-            create_sql << "(#{o.columns.map { |c| accept c }.join(', ')}) "
-            create_sql << "#{o.options}"
+            super
           end
-
-          create_sql
         end
+
       end
     end
   end
