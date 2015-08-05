@@ -296,15 +296,9 @@ module ActiveRecord
         end
 
         def sql_for_insert(sql, pk, id_value, sequence_name, binds)
-          sql =
-            if pk
-              sql.insert(sql.index(/ (DEFAULT )?VALUES/), " OUTPUT inserted.#{pk}")
-            else
-              "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
-            end
+          sql = "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
           super
         end
-
         # === SQLServer Specific ======================================== #
 
         def valid_isolation_levels
