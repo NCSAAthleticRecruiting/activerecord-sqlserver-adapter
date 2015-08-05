@@ -38,6 +38,13 @@ module ActiveRecord
               SQLServer::DatabaseLimits,
               SQLServer::DatabaseTasks
 
+=begin NCSA OLDER VERSION
+      VERSION                     = File.read(File.expand_path('../../../../VERSION', __FILE__)).strip
+      ADAPTER_NAME                = 'SQLServer'.freeze
+      DATABASE_VERSION_REGEXP     = /Microsoft SQL Server\s+"?(\d{4}|\w+)"?/
+      SUPPORTED_VERSIONS          = [2005, 2008, 2010, 2011, 2012, 2014]
+=end
+
       ADAPTER_NAME = 'SQLServer'.freeze
 
       attr_reader :spid
@@ -225,8 +232,17 @@ module ActiveRecord
         name.fully_qualified? && name.object.blank?
       end
 
+<<<<<<< HEAD
       def database_prefix
         @connection_options[:database_prefix]
+=======
+      def sqlserver_2014?
+        @database_year == 2014
+      end
+
+      def sqlserver_azure?
+        @sqlserver_azure
+>>>>>>> patch sqlserver version
       end
 
       def version
