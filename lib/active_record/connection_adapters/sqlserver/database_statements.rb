@@ -202,17 +202,9 @@ module ActiveRecord
           #         "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
           #       end
 
-          sql =
-            if pk
-              # support composite primary keys consisting of more than one column name
-              inserted_pks = [pk].flatten.map {|pk| "inserted.#{pk}"}
-              sql.insert(sql.index(/ (DEFAULT )?VALUES/), " OUTPUT #{inserted_pks.join(", ")}")
-            else
-              "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
-            end
+          sql = "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
           super
         end
-
         # === SQLServer Specific ======================================== #
 
         def set_identity_insert(table_name, enable = true)
