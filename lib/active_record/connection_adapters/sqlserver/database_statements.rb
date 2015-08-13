@@ -1,9 +1,10 @@
 module ActiveRecord
   module ConnectionAdapters
-    module Sqlserver
+    module SQLServer
       module DatabaseStatements
+
         def select_rows(sql, name = nil, binds = [])
-          do_exec_query sql, name, binds, fetch: :rows
+          sp_executesql sql, name, binds, fetch: :rows
         end
 
         def execute(sql, name = nil)
@@ -15,19 +16,17 @@ module ActiveRecord
         end
 
         def exec_query(sql, name = 'SQL', binds = [], sqlserver_options = {})
-          if id_insert_table_name = sqlserver_options[:insert] ? query_requires_identity_insert?(sql) : nil
-            with_identity_insert_enabled(id_insert_table_name) { do_exec_query(sql, name, binds) }
-          elsif update_sql?(sql)
-            sql = strip_ident_from_update(sql)
-            do_exec_query(sql, name, binds)
-          else
-            do_exec_query(sql, name, binds)
-          end
+          sp_executesql(sql, name, binds)
         end
 
-        # The abstract adapter ignores the last two parameters also
         def exec_insert(sql, name, binds, _pk = nil, _sequence_name = nil)
-          exec_query sql, name, binds, insert: true
+          id_insert = binds_have_identity_column?(binds)
+          id_table  = table_name_from_binds(binds) if id_insert
+          if id_insert && id_table
+            with_identity_insert_enabled(id_table) { exec_query(sql, name, binds) }
+          else
+            exec_query(sql, name, binds)
+          end
         end
 
         def exec_delete(sql, name, binds)
@@ -48,35 +47,44 @@ module ActiveRecord
           do_execute 'BEGIN TRANSACTION'
         end
 
-        def commit_db_transaction
-          disable_auto_reconnect { do_execute 'COMMIT TRANSACTION' }
+        def transaction_isolation_levels
+          super.merge snapshot: "SNAPSHOT"
         end
 
-        def rollback_db_transaction
+        def begin_isolated_db_transaction(isolation)
+          set_transaction_isolation_level transaction_isolation_levels.fetch(isolation)
+          begin_db_transaction
+        end
+
+        def set_transaction_isolation_level(isolation_level)
+          do_execute "SET TRANSACTION ISOLATION LEVEL #{isolation_level}"
+          begin_db_transaction
+        end
+
+        def commit_db_transaction
+          do_execute 'COMMIT TRANSACTION'
+        end
+
+        def exec_rollback_db_transaction
           do_execute 'IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION'
         end
 
+        include Savepoints
+
         def create_savepoint(name = current_savepoint_name)
-          disable_auto_reconnect { do_execute "SAVE TRANSACTION #{name}" }
+          do_execute "SAVE TRANSACTION #{name}"
+        end
+
+        def exec_rollback_to_savepoint(name = current_savepoint_name)
+          do_execute "ROLLBACK TRANSACTION #{name}"
         end
 
         def release_savepoint(name = current_savepoint_name)
         end
 
-        def rollback_to_savepoint(name = current_savepoint_name)
-          disable_auto_reconnect { do_execute "ROLLBACK TRANSACTION #{name}" }
-        end
-
-        def add_limit_offset!(_sql, _options)
-          raise NotImplementedError, 'This has been moved to the SQLServerCompiler in Arel.'
-        end
-
-        def empty_insert_statement_value
-          'DEFAULT VALUES'
-        end
-
-        def case_sensitive_modifier(node)
-          node.acts_like?(:string) ? Arel::Nodes::Bin.new(node) : node
+        def case_sensitive_modifier(node, table_attribute)
+          node = Arel::Nodes.build_quoted node, table_attribute
+          Arel::Nodes::Bin.new(node)
         end
 
         # === SQLServer Specific ======================================== #
@@ -114,10 +122,18 @@ module ActiveRecord
           end
         end
 
+        def with_identity_insert_enabled(table_name)
+          table_name = quote_table_name(table_name_or_views_table_name(table_name))
+          set_identity_insert(table_name, true)
+          yield
+        ensure
+          set_identity_insert(table_name, false)
+        end
+
         def use_database(database = nil)
           return if sqlserver_azure?
-          database ||= @connection_options[:database]
-          do_execute "USE #{quote_database_name(database)}" unless database.blank?
+          name = SQLServer::Utils.extract_identifiers(database || @connection_options[:database]).quoted
+          do_execute "USE #{name}" unless name.blank?
         end
 
         def user_options
@@ -135,7 +151,6 @@ module ActiveRecord
           end
         end
 
-        # TODO: Rails 4 now supports isolation levels
         def user_options_dateformat
           if sqlserver_azure?
             select_value 'SELECT [dateformat] FROM [sys].[syslanguages] WHERE [langid] = @@LANGID', 'SCHEMA'
@@ -169,19 +184,6 @@ module ActiveRecord
           end
         end
 
-        def run_with_isolation_level(isolation_level)
-          unless valid_isolation_levels.include?(isolation_level.upcase)
-            raise ArgumentError, "Invalid isolation level, #{isolation_level}. Supported levels include #{valid_isolation_levels.to_sentence}."
-          end
-          initial_isolation_level = user_options_isolation_level || 'READ COMMITTED'
-          do_execute "SET TRANSACTION ISOLATION LEVEL #{isolation_level}"
-          begin
-            yield
-          ensure
-            do_execute "SET TRANSACTION ISOLATION LEVEL #{initial_isolation_level}"
-          end if block_given?
-        end
-
         def newid_function
           select_value 'SELECT NEWID()'
         end
@@ -190,104 +192,6 @@ module ActiveRecord
           select_value 'SELECT NEWSEQUENTIALID()'
         end
 
-        def activity_stats
-          select_all %|
-            SELECT
-               [session_id]    = s.session_id,
-               [user_process]  = CONVERT(CHAR(1), s.is_user_process),
-               [login]         = s.login_name,
-               [database]      = ISNULL(db_name(r.database_id), N''),
-               [task_state]    = ISNULL(t.task_state, N''),
-               [command]       = ISNULL(r.command, N''),
-               [application]   = ISNULL(s.program_name, N''),
-               [wait_time_ms]  = ISNULL(w.wait_duration_ms, 0),
-               [wait_type]     = ISNULL(w.wait_type, N''),
-               [wait_resource] = ISNULL(w.resource_description, N''),
-               [blocked_by]    = ISNULL(CONVERT (varchar, w.blocking_session_id), ''),
-               [head_blocker]  =
-                    CASE
-                        -- session has an active request, is blocked, but is blocking others
-                        WHEN r2.session_id IS NOT NULL AND r.blocking_session_id = 0 THEN '1'
-                        -- session is idle but has an open tran and is blocking others
-                        WHEN r.session_id IS NULL THEN '1'
-                        ELSE ''
-                    END,
-               [total_cpu_ms]   = s.cpu_time,
-               [total_physical_io_mb]   = (s.reads + s.writes) * 8 / 1024,
-               [memory_use_kb]  = s.memory_usage * 8192 / 1024,
-               [open_transactions] = ISNULL(r.open_transaction_count,0),
-               [login_time]     = s.login_time,
-               [last_request_start_time] = s.last_request_start_time,
-               [host_name]      = ISNULL(s.host_name, N''),
-               [net_address]    = ISNULL(c.client_net_address, N''),
-               [execution_context_id] = ISNULL(t.exec_context_id, 0),
-               [request_id]     = ISNULL(r.request_id, 0),
-               [workload_group] = N''
-            FROM sys.dm_exec_sessions s LEFT OUTER JOIN sys.dm_exec_connections c ON (s.session_id = c.session_id)
-            LEFT OUTER JOIN sys.dm_exec_requests r ON (s.session_id = r.session_id)
-            LEFT OUTER JOIN sys.dm_os_tasks t ON (r.session_id = t.session_id AND r.request_id = t.request_id)
-            LEFT OUTER JOIN
-            (SELECT *, ROW_NUMBER() OVER (PARTITION BY waiting_task_address ORDER BY wait_duration_ms DESC) AS row_num
-                FROM sys.dm_os_waiting_tasks
-            ) w ON (t.task_address = w.waiting_task_address) AND w.row_num = 1
-            LEFT OUTER JOIN sys.dm_exec_requests r2 ON (r.session_id = r2.blocking_session_id)
-            WHERE db_name(r.database_id) = '#{current_database}'
-            ORDER BY s.session_id|
-        end
-
-        # === SQLServer Specific (Rake/Test Helpers) ==================== #
-
-        def recreate_database
-          remove_database_connections_and_rollback do
-            do_execute "EXEC sp_MSforeachtable 'DROP TABLE ?'"
-          end
-        end
-
-        def recreate_database!(database = nil)
-          current_db = current_database
-          database ||= current_db
-          this_db = database.to_s == current_db
-          do_execute 'USE master' if this_db
-          drop_database(database)
-          create_database(database)
-        ensure
-          use_database(current_db) if this_db
-        end
-
-        def drop_database(database)
-          retry_count = 0
-          max_retries = 1
-          begin
-            do_execute "DROP DATABASE #{quote_database_name(database)}"
-          rescue ActiveRecord::StatementInvalid => err
-            if err.message =~ /because it is currently in use/i
-              raise if retry_count >= max_retries
-              retry_count += 1
-              remove_database_connections_and_rollback(database)
-              retry
-            elsif err.message =~ /does not exist/i
-              nil
-            else
-              raise
-            end
-          end
-        end
-
-        def create_database(database, collation = @connection_options[:collation])
-          if collation
-            do_execute "CREATE DATABASE #{quote_database_name(database)} COLLATE #{collation}"
-          else
-            do_execute "CREATE DATABASE #{quote_database_name(database)}"
-          end
-        end
-
-        def current_database
-          select_value 'SELECT DB_NAME()'
-        end
-
-        def charset
-          select_value "SELECT SERVERPROPERTY('SqlCharSetName')"
-        end
 
         protected
 
@@ -301,60 +205,71 @@ module ActiveRecord
         end
         # === SQLServer Specific ======================================== #
 
-        def valid_isolation_levels
-          ['READ COMMITTED', 'READ UNCOMMITTED', 'REPEATABLE READ', 'SERIALIZABLE', 'SNAPSHOT']
+        def binds_have_identity_column?(binds)
+          binds.any? do |column_value|
+            column, value = column_value
+            SQLServerColumn === column && column.is_identity?
+          end
+        end
+
+        def table_name_from_binds(binds)
+          binds.detect { |column_value|
+            column, value = column_value
+            SQLServerColumn === column
+          }.try(:first).try(:table_name)
+        end
+
+        def set_identity_insert(table_name, enable = true)
+          do_execute "SET IDENTITY_INSERT #{table_name} #{enable ? 'ON' : 'OFF'}"
+        rescue Exception
+          raise ActiveRecordError, "IDENTITY_INSERT could not be turned #{enable ? 'ON' : 'OFF'} for table #{table_name}"
         end
 
         # === SQLServer Specific (Executing) ============================ #
 
         def do_execute(sql, name = 'SQL')
-          log(sql, name) do
-            with_sqlserver_error_handling { raw_connection_do(sql) }
+          log(sql, name) { raw_connection_do(sql) }
+        end
+
+        def sp_executesql(sql, name, binds, options = {})
+          options[:ar_result] = true if options[:fetch] != :rows
+          types, params = sp_executesql_types_and_parameters(binds)
+          sql = sp_executesql_sql(sql, types, params, name)
+          raw_select sql, name, binds, options
+        end
+
+        def sp_executesql_types_and_parameters(binds)
+          types, params = [], []
+          binds.each_with_index do |(column, value), index|
+            types << "@#{index} #{sp_executesql_sql_type(column, value)}"
+            params << quote(value, column)
+          end
+          [types, params]
+        end
+
+        def sp_executesql_sql_type(column, value)
+          return column.sql_type_for_statement if SQLServerColumn === column
+          if value.is_a?(Numeric)
+            'int'
+          # We can do more here later.
+          else
+            'nvarchar(max)'
           end
         end
 
-        def do_exec_query(sql, name, binds, options = {})
-          # This allows non-AR code to utilize the binds
-          # handling code, e.g. select_rows()
-          if options[:fetch] != :rows
-            options[:ar_result] = true
-          end
-
-          explaining = name == 'EXPLAIN'
-          names_and_types = []
-          params = []
-          binds.each_with_index do |(column, value), index|
-            ar_column = column.is_a?(ActiveRecord::ConnectionAdapters::Column)
-            next if ar_column && column.sql_type == 'timestamp'
-            v = value
-            names_and_types << if ar_column
-                                 if column.is_integer? && value.present?
-                                   v = value.to_i
-                                   # Reset the casted value to the bind as required by Rails 4.1
-                                   binds[index] = [column, v]
-                                 end
-                                 "@#{index} #{column.sql_type_for_statement}"
-                               elsif column.acts_like?(:string)
-                                 "@#{index} nvarchar(max)"
-                               elsif column.is_a?(Fixnum)
-                                 v = value.to_i
-                                 "@#{index} int"
-                               else
-                                 raise 'Unknown bind columns. We can account for this.'
-                               end
-            quoted_value = ar_column ? quote(v, column) : quote(v, nil)
-            params << (explaining ? quoted_value : "@#{index} = #{quoted_value}")
-          end
-          if explaining
-            params.each_with_index do |param, index|
+        def sp_executesql_sql(sql, types, params, name)
+          if name == 'EXPLAIN'
+            params.each.with_index do |param, index|
               substitute_at_finder = /(@#{index})(?=(?:[^']|'[^']*')*$)/ # Finds unquoted @n values.
               sql.sub! substitute_at_finder, param
             end
           else
+            types = quote(types.join(', '))
+            params = params.map.with_index{ |p, i| "@#{i} = #{p}" }.join(', ') # Only p is needed, but with @i helps explain regexp.
             sql = "EXEC sp_executesql #{quote(sql)}"
-            sql << ", #{quote(names_and_types.join(', '))}, #{params.join(', ')}" unless binds.empty?
+            sql << ", #{types}, #{params}" unless params.empty?
           end
-          raw_select sql, name, binds, options
+          sql
         end
 
         def raw_connection_do(sql)
@@ -382,13 +297,11 @@ module ActiveRecord
         end
 
         def raw_connection_run(sql)
-          with_sqlserver_error_handling do
-            case @connection_options[:mode]
-            when :dblib
-              @connection.execute(sql)
-            when :odbc
-              block_given? ? @connection.run_block(sql) { |handle| yield(handle) } : @connection.run(sql)
-            end
+          case @connection_options[:mode]
+          when :dblib
+            @connection.execute(sql)
+          when :odbc
+            block_given? ? @connection.run_block(sql) { |handle| yield(handle) } : @connection.run(sql)
           end
         end
 
@@ -444,6 +357,7 @@ module ActiveRecord
           end
           handle
         end
+
       end
     end
   end

@@ -1,33 +1,14 @@
-# ActiveRecord SQL Server Adapter. For SQL Server 2005 And Higher.
 
-The SQL Server adapter for ActiveRecord. If you need the adapter for SQL Server 2000, you are still in the right spot. Just install the latest 2.3.x version of the adapter. Note, we follow a rational versioning policy that tracks ActiveRecord. That means that our 2.3.x version of the adapter is only for the latest 2.3 version of Rails. We also have stable branches for each major/minor release of ActiveRecord.
+# ActiveRecord SQL Server Adapter. For SQL Server 2012 And Higher.
 
+[![Gem Version](http://img.shields.io/gem/v/activerecord-sqlserver-adapter.svg?style=flat)](https://rubygems.org/gems/activerecord-sqlserver-adapter)
+[![Gitter chat](https://img.shields.io/badge/%E2%8A%AA%20GITTER%20-JOIN%20CHAT%20%E2%86%92-brightgreen.svg?style=flat)](https://gitter.im/rails-sqlserver/activerecord-sqlserver-adapter)
 
-## What's New
+![kantishna-wide](https://cloud.githubusercontent.com/assets/2381/5895051/aa6a57e0-a4e1-11e4-95b9-23627af5876a.jpg)
 
-* Rails 4.0 and 4.1 support
-* Ruby 2.0 and 2.1 support
+## Code Name Kantishna
 
-
-#### Testing Rake Tasks Support
-
-This is a long story, but if you are not working with a legacy database and you can trust your schema.rb to setup your local development or test database, then we have adapter level support for rails :db rake tasks. Please read this wiki page for full details.
-
-http://wiki.github.com/rails-sqlserver/activerecord-sqlserver-adapter/rails-db-rake-tasks
-
-
-#### Date/Time Data Type Hinting
-
-SQL Server 2005 does not include a native data type for just `date` or `time`, it only has `datetime`. To pass the ActiveRecord tests we implemented two simple class methods that can teach your models to coerce column information to be cast correctly. Simply pass a list of symbols to either the `coerce_sqlserver_date` or `coerce_sqlserver_time` methods that correspond to 'datetime' columns that need to be cast correctly.
-
-```ruby
-class Topic < ActiveRecord::Base
-  coerce_sqlserver_date :last_read
-  coerce_sqlserver_time :bonus_time
-end
-```
-
-This implementation has some limitations. To date we can only coerce date/time types for models that conform to the expected ActiveRecord class to table naming conventions. So a table of 'foo_bar_widgets' will look for coerced column types in the FooBarWidget class.
+The SQL Server adapter for ActiveRecord v4.2 using SQL Server 2012 or higher. If you need the adapter for SQL Server 2008 or 2005, you are still in the right spot. Just install the latest 3.2.x to 4.1.x version of the adapter. We follow a rational versioning policy that tracks ActiveRecord. That means that our 4.2.x version of the adapter is only for the latest 4.2 version of Rails. We also have stable branches for each major/minor release of ActiveRecord.
 
 
 #### Executing Stored Procedures
@@ -40,70 +21,38 @@ Account.execute_procedure :update_totals, 'admin', nil, true
 Account.execute_procedure :update_totals, named: 'params'
 ```
 
+
 #### Native Data Type Support
 
-Currently the following custom data types have been tested for schema definitions.
-
-* char
-* nchar
-* nvarchar
-* ntext
-* varchar(max)
-* nvarchar(max)
-
-For example:
+We support every data type supported by FreeTDS and then a few more. All simplified Rails types in migrations will coorespond to a matching SQL Server national data type. Here is a basic chart. Always check the `initialize_native_database_types` method for an updated list.
 
 ```ruby
-create_table :sql_server_custom_types, force: true do |t|
-  t.column :ten_code,       :char,      limit: 10
-  t.column :ten_code_utf8,  :nchar,     limit: 10
-  t.column :title_utf8,     :nvarchar
-  t.column :body,           :varchar_max    # Creates varchar(max)
-  t.column :body_utf8,      :ntext
-  t.column :body2_utf8,     :nvarchar_max   # Creates nvarchar(max)
-end
+integer:      { name: 'int', limit: 4 }
+bigint:       { name: 'bigint' }
+boolean:      { name: 'bit' }
+decimal:      { name: 'decimal' }
+money:        { name: 'money' }
+smallmoney:   { name: 'smallmoney' }
+float:        { name: 'float' }
+real:         { name: 'real' }
+date:         { name: 'date' }
+datetime:     { name: 'datetime' }
+timestamp:    { name: 'datetime' }
+time:         { name: 'time' }
+char:         { name: 'char' }
+varchar:      { name: 'varchar', limit: 8000 }
+varchar_max:  { name: 'varchar(max)' }
+text_basic:   { name: 'text' }
+nchar:        { name: 'nchar' }
+string:       { name: 'nvarchar', limit: 4000 }
+text:         { name: 'nvarchar(max)' }
+ntext:        { name: 'ntext' }
+binary_basic: { name: 'binary' }
+varbinary:    { name: 'varbinary', limit: 8000 }
+binary:       { name: 'varbinary(max)' }
+uuid:         { name: 'uniqueidentifier' }
+ss_timestamp: { name: 'timestamp' }
 ```
-
-Manually creating a `varchar(max)` is not necessary since this is the default type created when specifying a `:text` field. As time goes on we will be testing other SQL Server specific data types are handled correctly when created in a migration.
-
-
-#### Native Text/String/Binary Data Type Accessor
-
-To pass the ActiveRecord tests we had to implement an class accessor for the native type created for `:text` columns. By default any `:text` column created by migrations will create a `varchar(max)` data type. This type can be queried using the SQL = operator and has plenty of storage space which is why we made it the default. If for some reason you want to change the data type created during migrations you can configure this line to your liking in a config/initializers file.
-
-```ruby
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_text_database_type = 'varchar(8000)'
-```
-
-Also, there is a class attribute setter for the native string database type. This is the same for all SQL Server versions, `varchar`. However it can be used instead of the #enable_default_unicode_types below for finer grain control over which types you want unicode safe when adding or changing the schema.
-
-```ruby
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_string_database_type = 'nvarchar'
-```
-
-By default any :binary column created by migrations will create a `varbinary(max)` data type. This too can be set using an initializer.
-
-```ruby
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_binary_database_type = 'image'
-```
-
-####  Setting Unicode Types As Default
-
-By default the adapter will use unicode safe data types for `:string` and `:text` types when defining/changing the schema! This was changed in version 3.1 since it is about time we push better unicode support and since we default to TinyTDS (DBLIB) which supports unicode queries and data. If you choose, you can set the following class attribute in a config/initializers file that will disable this behavior. 
-
-```ruby
-# Default
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.enable_default_unicode_types = true
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_text_database_type = 'nvarchar(max)'
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_string_database_type = 'nvarchar'
-
-# Disabled
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.enable_default_unicode_types = false
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_text_database_type = 'varchar(max)'
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.native_string_database_type = 'varchar'
-```
-
-It is important to remember that unicode types in SQL Server have approximately half the storage capacity as their counter parts. So where a normal string would max out at (8000) a unicode string will top off at (4000).
 
 
 #### Force Schema To Lowercase
@@ -121,15 +70,6 @@ Depending on your user and schema setup, it may be needed to use a table name pr
 
 ```ruby
 ActiveRecord::Base.table_name_prefix = 'dbo.'
-```
-
-
-#### Auto Connecting
-
-By default the adapter will auto connect to lost DB connections. For every query it will retry at intervals of 2, 4, 8, 16 and 32 seconds. During each retry it will callback out to ActiveRecord::Base.did_retry_sqlserver_connection(connection,count). When all retries fail, it will callback to ActiveRecord::Base.did_lose_sqlserver_connection(connection). Both implementations of these methods are to write to the rails logger, however, they make great override points for notifications like Hoptoad. If you want to disable automatic reconnections use the following in an initializer.
-
-```ruby
-ActiveRecord::ConnectionAdapters::SQLServerAdapter.auto_connect = false
 ```
 
 
@@ -176,7 +116,7 @@ EXPLAIN for: SELECT [cars].* FROM [cars] WHERE [cars].[id] = 1
 You can configure a few options to your needs. First is the max column width for the logged table. The default value is 50 characters. You can change it like so.
 
 ```ruby
-ActiveRecord::ConnectionAdapters::Sqlserver::Showplan::PrinterTable.max_column_width = 500
+ActiveRecord::ConnectionAdapters::SQLServer::Showplan::PrinterTable.max_column_width = 500
 ```
 
 Another configuration is the showplan option. Some might find the XML format more useful. If you have Nokogiri installed, we will format the XML string. I will gladly accept pathches that make the XML printer more useful!
@@ -185,6 +125,7 @@ Another configuration is the showplan option. Some might find the XML format mor
 ActiveRecord::ConnectionAdapters::SQLServerAdapter.showplan_option = 'SHOWPLAN_XML'
 ```
 **NOTE:** The method we utilize to make SHOWPLANs work is very brittle to complex SQL. There is no getting around this as we have to deconstruct an already prepared statement for the sp_executesql method. If you find that explain breaks your app, simple disable it. Do not open a github issue unless you have a patch.  Please [consult the Rails guides](http://guides.rubyonrails.org/active_record_querying.html#running-explain) for more info.
+
 
 ## Versions
 
@@ -197,22 +138,20 @@ The adapter has no strict gem dependencies outside of ActiveRecord. You will hav
 
 ```ruby
 gem 'tiny_tds'
-gem 'activerecord-sqlserver-adapter', '~> 4.0.0'
+gem 'activerecord-sqlserver-adapter', '~> 4.2.0'
 ```
 
-If you want to use ruby ODBC, please use at least version 0.99992 since that contains fixes for both native types as well as fixes for proper encoding support under 1.9. If you have any troubles installing the lower level libraries for the adapter, please consult the wiki pages for various platform installation guides. Tons of good info can be found and we ask that you contribute too!
+If you want to use ruby ODBC, please use the latest least. If you have any troubles installing the lower level libraries for the adapter, please consult the wiki pages for various platform installation guides. Tons of good info can be found and we ask that you contribute too!
 
 http://wiki.github.com/rails-sqlserver/activerecord-sqlserver-adapter/platform-installation
 
 
-
 ## Contributing
 
-If you would like to contribute a feature or bugfix, thanks! To make sure your fix/feature has a high chance of being added, please read the following guidelines. First, ask on the Google list, IRC, or post a ticket on github issues. Second, make sure there are tests! We will not accept any patch that is not tested. Please read the `RUNNING_UNIT_TESTS` file for the details of how to run the unit tests.
+If you would like to contribute a feature or bugfix, thanks! To make sure your fix/feature has a high chance of being added, please read the following guidelines. First, ask on the Gitter, or post a ticket on github issues. Second, make sure there are tests! We will not accept any patch that is not tested. Please read the `RUNNING_UNIT_TESTS` file for the details of how to run the unit tests.
 
 * Github: http://github.com/rails-sqlserver/activerecord-sqlserver-adapter
-* Google Group: http://groups.google.com/group/rails-sqlserver-adapter
-* IRC Room: #rails-sqlserver on irc.freenode.net
+* Gitter: https://gitter.im/rails-sqlserver/activerecord-sqlserver-adapter
 
 
 ## Credits & Contributions
@@ -225,6 +164,7 @@ Up-to-date list of contributors: http://github.com/rails-sqlserver/activerecord-
 
 * metaskills (Ken Collins)
 * Annaswims (Annaswims)
+* wbond (Will Bond)
 * Thirdshift (Garrett Hart)
 * h-lame (Murray Steele)
 * vegantech
@@ -240,12 +180,7 @@ Up-to-date list of contributors: http://github.com/rails-sqlserver/activerecord-
 * jeremydurham (Jeremy Durham)
 
 
-## Donators
-
-I am trying to save up for a Happy Hacking pro keyboard. Help me out via GitTip! https://www.gittip.com/metaskills/
-
-
 ## License
 
-Copyright © 2008-2011. It is free software, and may be redistributed under the terms specified in the MIT-LICENSE file.
+Copyright © 2008-2015. It is free software, and may be redistributed under the terms specified in the MIT-LICENSE file.
 

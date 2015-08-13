@@ -1,8 +1,9 @@
 module ActiveRecord
   module ConnectionAdapters
-    module Sqlserver
+    module SQLServer
       module CoreExt
         module Explain
+
           SQLSERVER_STATEMENT_PREFIX = 'EXEC sp_executesql '
           SQLSERVER_PARAM_MATCHER = /@\d+ =/
 
@@ -15,7 +16,7 @@ module ActiveRecord
 
           # This is somewhat hacky, but it should reliably reformat our prepared sql statment
           # which uses sp_executesql to just the first argument, then unquote it. Likewise our
-          # do_exec_query method should substitude the @n args withe the quoted values.
+          # `sp_executesql` method should substitude the @n args withe the quoted values.
           def unprepare_sqlserver_statement(sql)
             if sql.starts_with?(SQLSERVER_STATEMENT_PREFIX)
               executesql = sql.from(SQLSERVER_STATEMENT_PREFIX.length)
@@ -28,11 +29,12 @@ module ActiveRecord
               sql
             end
           end
+
         end
       end
     end
   end
 end
 
-ActiveRecord::Base.extend ActiveRecord::ConnectionAdapters::Sqlserver::CoreExt::Explain
-ActiveRecord::Relation.send :include, ActiveRecord::ConnectionAdapters::Sqlserver::CoreExt::Explain
+ActiveRecord::Base.extend ActiveRecord::ConnectionAdapters::SQLServer::CoreExt::Explain
+ActiveRecord::Relation.send :include, ActiveRecord::ConnectionAdapters::SQLServer::CoreExt::Explain

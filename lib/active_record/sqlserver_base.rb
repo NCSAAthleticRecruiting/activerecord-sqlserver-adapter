@@ -1,5 +1,6 @@
 module ActiveRecord
   class Base
+
     def self.sqlserver_connection(config) #:nodoc:
       config = config.symbolize_keys
       config.reverse_merge! mode: :dblib
@@ -17,12 +18,5 @@ module ActiveRecord
       ConnectionAdapters::SQLServerAdapter.new(nil, logger, nil, config.merge(mode: mode))
     end
 
-    def self.did_retry_sqlserver_connection(connection, count)
-      logger.info "CONNECTION RETRY: #{connection.class.name} retry ##{count}."
-    end
-
-    def self.did_lose_sqlserver_connection(connection)
-      logger.info "CONNECTION LOST: #{connection.class.name}"
-    end
   end
 end
