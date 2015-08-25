@@ -200,16 +200,9 @@ module ActiveRecord
         end
 
         def sql_for_insert(sql, pk, id_value, sequence_name, binds)
-          sql = if pk && self.class.use_output_inserted
-            # support composite primary keys consisting of more than one column name
-            inserted_pks = [pk].flatten.map {|my_pk| "inserted.#{SQLServer::Utils.extract_identifiers(my_pk).quoted}"}
-            sql.insert(sql.index(/ (DEFAULT )?VALUES/), " OUTPUT #{inserted_pks.join(", ")}")
-          else
-            "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
-          end
+          sql = "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
           super
         end
-
         # === SQLServer Specific ======================================== #
 
         def binds_have_identity_column?(binds)
