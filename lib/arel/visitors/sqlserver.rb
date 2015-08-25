@@ -163,6 +163,13 @@ module Arel
         if o.orders.empty?
           # Prefer deterministic vs a simple `(SELECT NULL)` expr.
           o.orders = [pk.asc]
+          o.orders.each_with_index do |node, i|
+            rel = node.expr.relation
+            expr_name = node.expr.name
+            if expr_name.is_a?(CompositePrimaryKeys::CompositeKeys)
+              o.orders[i] = expr_name.collect { |a| rel[a].send(node.direction) }
+            end
+          end
         end
       end
 
