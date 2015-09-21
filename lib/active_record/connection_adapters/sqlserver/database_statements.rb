@@ -205,6 +205,15 @@ module ActiveRecord
           sql = "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
           super
         end
+        def sql_for_insert(sql, pk, id_value, sequence_name, binds)
+          sql = if pk && self.class.use_output_inserted
+            quoted_pk = SQLServer::Utils.extract_identifiers(pk).quoted
+            sql.insert sql.index(/ (DEFAULT )?VALUES/), " OUTPUT INSERTED.#{quoted_pk}"
+          else
+            "#{sql}; SELECT CAST(SCOPE_IDENTITY() AS bigint) AS Ident"
+          end
+          super
+        end
         # === SQLServer Specific ======================================== #
 
         def set_identity_insert(table_name, enable = true)
