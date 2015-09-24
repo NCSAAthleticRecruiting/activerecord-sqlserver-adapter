@@ -269,10 +269,8 @@ module ActiveRecord
               sql.sub! substitute_at_finder, param.to_s
             end
           else
-            types = quote(types.join(', '))
-            params = params.map.with_index{ |p, i| "@#{i} = #{p}" }.join(', ') # Only p is needed, but with @i helps explain regexp.
+            substitute_query_params(sql, params)
             sql = "EXEC sp_executesql #{quote(sql)}"
-            sql << ", #{types}, #{params}" unless params.empty?
           end
           sql
         end
@@ -337,6 +335,13 @@ module ActiveRecord
           handle
         end
 
+        private
+
+        def substitute_query_params(sql, params)
+          params.each_with_index do |p,i|
+            sql.gsub!("@P#{i}", "#{p}")
+          end
+        end
       end
     end
   end

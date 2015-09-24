@@ -5,7 +5,8 @@ module ActiveRecord
 
         # COMMENTED CODE IS ORIGINAL CODE FROM TAG v5.0.0 FROM rails-sqlserver/activerecord-sqlserver-adapter
         # VERSION = File.read(File.expand_path("../../../../../VERSION", __FILE__)).chomp
-        VERSION = '4.2.6-NCSA'
+
+        VERSION = '5.0.0-NCSA'
 
       end
     end
