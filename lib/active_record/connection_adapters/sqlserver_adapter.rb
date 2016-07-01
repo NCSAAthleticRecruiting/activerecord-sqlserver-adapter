@@ -232,19 +232,18 @@ module ActiveRecord
         name.fully_qualified? && name.object.blank?
       end
 
-<<<<<<< HEAD
       def database_prefix
         @connection_options[:database_prefix]
-=======
+      end
+=begin NCSA OLDER CODE
       def sqlserver_2014?
         @database_year == 2014
       end
 
       def sqlserver_azure?
         @sqlserver_azure
->>>>>>> patch sqlserver version
       end
-
+=end
       def version
         self.class::VERSION
       end
